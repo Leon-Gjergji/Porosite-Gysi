@@ -4,11 +4,12 @@
 // ============================================================
 
 // Pilaf sizes. The order here is also the order in the restaurant text.
-export const PILAF_SIZES = {
-  dopjoteke: { label: 'Dopio+teke', price: 240 },
-  dopjo: { label: 'Dopjo', price: 160 },
-  gjys: { label: 'Teke e gjys', price: 120 },
-  teke: { label: 'Teke', price: 80 },
+export const SIMPLE_ITEMS = {
+  fileto: { label: 'Fileto pule', price: 250 },
+  pene: { label: 'Pene pan proshut', price: 250 },
+  patate: { label: 'Patate', price: 250 },
+  uje: { label: 'Uje', price: 50 },
+  kos: { label: 'Kos', price: 40 },
 };
 
 export const QEBAP_PRICE = 40;
