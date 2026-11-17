@@ -1,0 +1,13 @@
+{
+  "name": "porosite-e-dites",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mbledh porositë e ushqimit të grupit dhe nxjerr tekstin për restorantin.",
+  "dependencies": {
+    "@upstash/redis": "^1.41.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#c2410c" />
+  <title>Porositë e ditës</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍛</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- ========== LOGIN ========== -->
+  <main id="login" class="login hidden">
+    <form id="loginForm" class="card login-card" autocomplete="on">
+      <div class="logo">🍛</div>
+      <h1>Porositë e ditës</h1>
+      <p class="muted">Shkruaj emrin dhe fjalëkalimin e grupit.</p>
+      <label class="field">
+        <span>Emri yt</span>
+        <input id="loginName" name="name" required maxlength="30" placeholder="p.sh. Ardi" autocomplete="nickname" />
+      </label>
+      <label class="field">
+        <span>Fjalëkalimi i grupit</span>
+        <input id="loginPassword" name="password" type="password" required autocomplete="current-password" />
+      </label>
+      <p id="loginError" class="error hidden"></p>
+      <button class="btn btn-primary btn-block" type="submit">Hyr</button>
+    </form>
+  </main>
+
+  <!-- ========== APP ========== -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand">🍛 Porositë</div>
+      <div class="user">
+        <span id="userName"></span>
+        <button id="logoutBtn" class="link">Dil</button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-view="day">Porosit</button>
+      <button class="tab" data-view="history">Historiku</button>
+    </nav>
+
+    <!-- ----- DAY VIEW ----- -->
+    <main id="view-day" class="container">
+      <div class="datebar card">
+        <button class="icon-btn" data-shift="-1" aria-label="Dita e kaluar">‹</button>
+        <label class="date-label">
+          <span id="dateText"></span>
+          <input id="dateInput" type="date" aria-label="Zgjidh datën" />
+        </label>
+        <button class="icon-btn" data-shift="1" aria-label="Dita tjetër">›</button>
+      </div>
+      <button id="todayBtn" class="link center hidden">Kthehu te sot</button>
+
+      <section class="card">
+        <h2>Porosia</h2>
+        <div id="orderForm"></div>
+      </section>
+
+      <section class="card">
+        <h2>Porositë e ditës <span id="ordersCount" class="badge">0</span></h2>
+        <div id="ordersList"></div>
+      </section>
+
+      <section class="card">
+        <h2>Teksti për restorantin</h2>
+        <pre id="restaurantText" class="output"></pre>
+        <div class="btn-row">
+          <button id="copyRestaurant" class="btn btn-primary">📋 Kopjo</button>
+          <a id="whatsappRestaurant" class="btn btn-whatsapp" target="_blank" rel="noopener">WhatsApp</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Kush sa paguan</h2>
+        <div id="payments"></div>
+        <div class="btn-row">
+          <button id="copyPayments" class="btn">📋 Kopjo listën</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ----- HISTORY VIEW ----- -->
+    <main id="view-history" class="container hidden">
+      <section class="card">
+        <h2>Historiku</h2>
+        <p class="muted small">Kliko një ditë për të parë porositë, tekstin dhe pagesat.</p>
+        <div id="historyList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
