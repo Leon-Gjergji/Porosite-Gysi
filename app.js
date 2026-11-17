@@ -10,6 +10,7 @@ import {
   describeOrder,
   buildRestaurantText,
   buildPaymentsText,
+  BOTTOM_ITEMS,
 } from './menu.js';
 
 // ============================================================
@@ -83,7 +84,11 @@ async function copyText(text) {
 // ============================================================
 // State
 // ============================================================
-const emptyDraft = () => ({ pilafs: [], qebap: 0, fileto: 0, pene: 0, uje: 0, kos: 0 });
+const emptyDraft = () => {
+  const d = { pilafs: [], qebap: 0 };
+  for (const key of Object.keys(SIMPLE_ITEMS)) d[key] = 0;
+  return d;
+};
 
 const state = {
   name: storage.get('porosite_emri') || '',
@@ -205,12 +210,11 @@ function renderForm() {
     </div>`;
   const simple = (key) => simpleRow(key, SIMPLE_ITEMS[key].label, `${SIMPLE_ITEMS[key].price} lek`, d[key], MAX_QTY);
 
+  const keys = Object.keys(SIMPLE_ITEMS);
   const others = [
-    simple('fileto'),
-    simple('pene'),
+    ...keys.filter((k) => !BOTTOM_ITEMS.includes(k)).map(simple),
     simpleRow('qebap', 'Vetëm qebapa (pa pilaf)', `${QEBAP_PRICE} lek copa`, d.qebap, MAX_QEBAP_ALONE),
-    simple('uje'),
-    simple('kos'),
+    ...keys.filter((k) => BOTTOM_ITEMS.includes(k)).map(simple),
   ].join('');
 
   let hint = '';
