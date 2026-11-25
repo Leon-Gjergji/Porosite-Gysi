@@ -1,12 +1,13 @@
 // /api/history  -> last 90 days that have orders, newest first
-import { send, checkAuth, getStore } from './_db.js';
+import { send, getStore, requireMethod, requireUser } from './_db.js';
 
 export default async function handler(req, res) {
-  if (!checkAuth(req, res)) return;
+  if (!requireMethod(req, res, ['GET'])) return;
   const store = getStore(res);
   if (!store) return;
 
   try {
+    if (!(await requireUser(req, res, store))) return;
     const days = await store.history(90);
     const result = days
       .filter((d) => d.orders.length)
