@@ -355,45 +355,43 @@ input:focus { border-color: var(--ink); outline: none; box-shadow: 0 0 0 3px rgb
 
 /* ---------- menu ---------- */
 .menu-block { padding-top: 10px; }
-.menu-tools {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--paper);
-  padding: 10px 0 8px;
-  margin: 0 -2px;
-  box-shadow: 0 8px 10px -10px rgba(45, 38, 41, 0.4);
-}
-.chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 2px 2px; scrollbar-width: none; }
-.chips::-webkit-scrollbar { display: none; }
-.chip {
-  flex: none;
-  border: 1.5px solid rgba(45, 38, 41, 0.3);
-  background: transparent;
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-weight: 600;
-  font-size: 0.88rem;
-  display: inline-flex;
+.menu-tools { display: grid; gap: 10px; margin-bottom: 6px; }
+.cat { border-bottom: 1.5px solid rgba(45, 38, 41, 0.14); }
+.cat:last-child { border-bottom: 0; }
+.cat-toggle {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 14px 2px;
+  text-align: left;
 }
-.chip b {
+.cat-title {
+  font-size: 1.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cat-count { margin-left: auto; font-size: 0.82rem; color: var(--ink-soft); white-space: nowrap; }
+.cat-count b {
   background: var(--ink);
   color: var(--paper);
   border-radius: 999px;
-  font-size: 0.72rem;
-  min-width: 18px;
-  padding: 0 5px;
-  text-align: center;
+  padding: 2px 9px;
+  font-weight: 600;
 }
-.cat { padding-top: 18px; }
-.cat-title {
-  font-size: 1.3rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
+.chev {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-right: 2.5px solid var(--ink);
+  border-bottom: 2.5px solid var(--ink);
+  transform: translateY(-3px) rotate(45deg);
+  transition: transform 0.15s ease;
 }
+.cat.open .chev { transform: translateY(2px) rotate(-135deg); }
+.cat-body { padding-bottom: 10px; }
 .dish {
   display: flex;
   align-items: center;
@@ -625,4 +623,3 @@ input:focus { border-color: var(--ink); outline: none; box-shadow: 0 0 0 3px rgb
   * { transition: none !important; animation: none !important; }
 }
 
-@media (min-width: 720px) { .chips { flex-wrap: wrap; overflow: visible; } }

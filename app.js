@@ -105,6 +105,7 @@ const state = {
   poff: 0,
   users: [],
   authMode: 'login',
+  open: new Set(), // menu sections that are open
 };
 
 const isAdmin = () => !!state.me?.admin;
@@ -167,6 +168,7 @@ async function loadDay({ resetDraft = false } = {}) {
   if (date !== state.date) return; // user already switched to another day
   state.orders = data.orders;
   if (resetDraft || !state.dirty) loadDraftFor(state.forName || state.me.username);
+  if (resetDraft) openPicked();
   renderDay();
 }
 
@@ -274,22 +276,41 @@ function dishRow(it) {
     </div>`;
 }
 
+// How many different dishes of a category are in the current order
+const pickedIn = (c) => c.items.filter((it) => (it.id === 'qebap' ? state.draft.qebap : state.draft.n[it.id])).length;
+
+// Open the sections that already have something picked (when an order is loaded)
+function openPicked() {
+  for (const c of MENU) if (pickedIn(c)) state.open.add(c.id);
+}
+
+function catHead(c, open) {
+  const picked = pickedIn(c);
+  return `
+    <button type="button" class="cat-toggle" data-cat="${c.id}" aria-expanded="${open}" aria-controls="cat-body-${c.id}">
+      <span class="cat-title slab">${esc(c.title)}</span>
+      <span class="cat-count">${picked ? `<b>${picked} në porosi</b>` : `${c.items.length} pjata`}</span>
+      <span class="chev" aria-hidden="true"></span>
+    </button>`;
+}
+
 function renderMenu() {
   const q = fold(state.search.trim());
   const match = (it) => !q || fold(`${it.label} ${it.en} ${it.note || ''}`).includes(q);
   const cats = MENU.map((c) => ({ ...c, shown: c.items.filter(match) })).filter((c) => c.shown.length);
 
-  renderMenuChipsOnly();
-
   $('#menuList').innerHTML = cats.length
     ? cats
-        .map(
-          (c) => `
-        <section class="cat" id="cat-${c.id}">
-          <h3 class="cat-title slab">${esc(c.title)}</h3>
-          ${c.shown.map(dishRow).join('')}
-        </section>`
-        )
+        .map((c) => {
+          const open = !!q || state.open.has(c.id); // while searching, every matching section is open
+          return `
+        <section class="cat ${open ? 'open' : ''}" id="cat-${c.id}">
+          ${catHead(c, open)}
+          <div class="cat-body" id="cat-body-${c.id}" ${open ? '' : 'hidden'}>
+            ${c.shown.map(dishRow).join('')}
+          </div>
+        </section>`;
+        })
         .join('')
     : `<p class="empty">Asgjë me “${esc(state.search)}”. Provo një fjalë tjetër.</p>`;
 }
@@ -318,26 +339,15 @@ function renderForm() {
   renderCart();
 }
 
-// after a +/- on one dish: only redraw that row, the chips and the bar
+// after a +/- on one dish: only redraw that row, its section header and the bar
 function refreshDish(id) {
   const row = document.getElementById(`dish-${id}`);
   if (row) row.outerHTML = dishRow(ITEMS[id]);
-  const chipsScroll = $('#catChips').scrollLeft;
-  renderMenuChipsOnly();
-  $('#catChips').scrollLeft = chipsScroll;
+  const c = MENU.find((x) => x.id === ITEMS[id].cat);
+  const head = document.querySelector(`#cat-${c.id} .cat-toggle`);
+  if (head) head.outerHTML = catHead(c, head.getAttribute('aria-expanded') === 'true');
   renderForWho();
   renderCart();
-}
-
-function renderMenuChipsOnly() {
-  const q = fold(state.search.trim());
-  const match = (it) => !q || fold(`${it.label} ${it.en} ${it.note || ''}`).includes(q);
-  $('#catChips').innerHTML = MENU.filter((c) => c.items.some(match))
-    .map((c) => {
-      const picked = c.items.filter((it) => (it.id === 'qebap' ? state.draft.qebap : state.draft.n[it.id])).length;
-      return `<button type="button" class="chip" data-cat="${c.id}">${esc(c.title)}${picked ? `<b>${picked}</b>` : ''}</button>`;
-    })
-    .join('');
 }
 
 // ============================================================
@@ -656,7 +666,7 @@ $('#forWho').addEventListener('change', (e) => {
   e.target.blur();
   if (!name) { loadDraftFor(state.me.username); renderForm(); return; }
   // Nothing picked yet -> show this person's saved order. If dishes were already picked, keep them.
-  if (!state.dirty) loadDraftFor(name);
+  if (!state.dirty) { loadDraftFor(name); openPicked(); }
   else state.forName = name;
   renderForm();
   renderDay();
@@ -704,12 +714,18 @@ $('#menuSearch').addEventListener('input', (e) => {
   renderMenu();
 });
 
-$('#catChips').addEventListener('click', (e) => {
-  const chip = e.target.closest('[data-cat]');
-  if (!chip) return;
-  const target = document.getElementById(`cat-${chip.dataset.cat}`);
-  const offset = $('.menu-tools').offsetHeight + 8;
-  if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - offset, behavior: 'smooth' });
+// Open / close a menu section
+$('#menuList').addEventListener('click', (e) => {
+  const head = e.target.closest('.cat-toggle');
+  if (!head) return;
+  const id = head.dataset.cat;
+  const section = document.getElementById(`cat-${id}`);
+  const open = head.getAttribute('aria-expanded') !== 'true';
+  if (open) state.open.add(id);
+  else state.open.delete(id);
+  head.setAttribute('aria-expanded', open);
+  section.classList.toggle('open', open);
+  section.querySelector('.cat-body').hidden = !open;
 });
 
 $('#saveBtn').addEventListener('click', saveOrder);
@@ -760,6 +776,7 @@ $('#ordersList').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-edit]');
   if (!btn) return;
   loadDraftFor(btn.dataset.edit);
+  openPicked();
   renderDay();
   $('#view-day .block').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
