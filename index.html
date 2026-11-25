@@ -3,97 +3,211 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#c2410c" />
-  <title>Porositë e ditës</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍛</text></svg>" />
+  <meta name="theme-color" content="#2f2a1c" />
+  <title>Porositë, Te Gysi</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%232d2629'/><path d='M12 42a20 20 0 0 1 40 0z' fill='none' stroke='%23ecdfc6' stroke-width='5'/><circle cx='32' cy='18' r='4' fill='%23ecdfc6'/><path d='M8 46h48' stroke='%23ecdfc6' stroke-width='5' stroke-linecap='round'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Kumbh+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- ========== LOGIN ========== -->
-  <main id="login" class="login hidden">
-    <form id="loginForm" class="card login-card" autocomplete="on">
-      <div class="logo">🍛</div>
-      <h1>Porositë e ditës</h1>
-      <p class="muted">Shkruaj emrin dhe fjalëkalimin e grupit.</p>
-      <label class="field">
-        <span>Emri yt</span>
-        <input id="loginName" name="name" required maxlength="30" placeholder="p.sh. Ardi" autocomplete="nickname" />
-      </label>
-      <label class="field">
-        <span>Fjalëkalimi i grupit</span>
-        <input id="loginPassword" name="password" type="password" required autocomplete="current-password" />
-      </label>
-      <p id="loginError" class="error hidden"></p>
-      <button class="btn btn-primary btn-block" type="submit">Hyr</button>
-    </form>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="cloche" viewBox="0 0 120 80">
+      <circle cx="60" cy="10" r="6" fill="currentColor" />
+      <path d="M14 62a46 46 0 0 1 92 0" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" />
+      <path d="M6 70h108" stroke="currentColor" stroke-width="7" stroke-linecap="round" />
+      <path d="M34 52c4-12 12-20 24-24" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" opacity=".55" />
+    </symbol>
+    <symbol id="crown" viewBox="0 0 24 16">
+      <path d="M2 14 1 3l6 5 5-7 5 7 6-5-1 11z" fill="currentColor" />
+    </symbol>
+  </svg>
+
+  <!-- ========== LOGIN / SIGN UP ========== -->
+  <main id="login" class="placemat hidden">
+    <div class="paper login-paper">
+      <header class="masthead">
+        <svg class="cloche" aria-hidden="true"><use href="#cloche" /></svg>
+        <p class="house">Traditional food</p>
+        <p class="script">Te Gysi</p>
+        <h1 class="slab big">Menu</h1>
+      </header>
+
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn active" data-auth="login" role="tab">Hyr</button>
+        <button type="button" class="seg-btn" data-auth="register" role="tab">Krijo llogari</button>
+      </div>
+
+      <form id="authForm" class="auth-form" autocomplete="on" novalidate>
+        <label class="field">
+          <span>Emri i përdoruesit</span>
+          <input id="authUser" name="username" required maxlength="20" autocomplete="username" autocapitalize="off" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>Fjalëkalimi</span>
+          <input id="authPass" name="password" type="password" required minlength="6" maxlength="100" autocomplete="current-password" />
+        </label>
+        <label class="field register-only hidden">
+          <span>Kodi i grupit</span>
+          <input id="authCode" name="groupCode" type="password" autocomplete="off" />
+          <small>Kodi që e ndajmë në grup. Pa të nuk krijohet llogari.</small>
+        </label>
+        <p class="note register-only hidden">
+          Ke porositur më parë me një emër? Përdor të njëjtin emër dhe porositë e vjetra mbeten të tuat.
+        </p>
+        <p id="authError" class="error hidden" role="alert"></p>
+        <button id="authSubmit" class="btn btn-ink btn-block" type="submit">Hyr</button>
+      </form>
+    </div>
   </main>
 
   <!-- ========== APP ========== -->
-  <div id="app" class="hidden">
-    <header class="topbar">
-      <div class="brand">🍛 Porositë</div>
-      <div class="user">
-        <span id="userName"></span>
-        <button id="logoutBtn" class="link">Dil</button>
-      </div>
-    </header>
+  <div id="app" class="placemat hidden">
+    <div class="paper">
+      <header class="topbar">
+        <a class="brand" href="#" data-view="day" aria-label="Te Gysi, porosit">
+          <svg aria-hidden="true"><use href="#cloche" /></svg>
+          <span>Te Gysi</span>
+        </a>
+        <button id="meBtn" class="me" data-view="account">
+          <span id="meName"></span>
+          <span id="meBadge" class="pill hidden">admin</span>
+        </button>
+      </header>
 
-    <nav class="tabs">
-      <button class="tab active" data-view="day">Porosit</button>
-      <button class="tab" data-view="history">Historiku</button>
-    </nav>
+      <nav class="tabs" aria-label="Faqet">
+        <button class="tab active" data-view="day">Porosit</button>
+        <button class="tab" data-view="board">Renditja</button>
+        <button class="tab" data-view="history">Historiku</button>
+        <button class="tab" data-view="account">Llogaria</button>
+      </nav>
 
-    <!-- ----- DAY VIEW ----- -->
-    <main id="view-day" class="container">
-      <div class="datebar card">
-        <button class="icon-btn" data-shift="-1" aria-label="Dita e kaluar">‹</button>
-        <label class="date-label">
-          <span id="dateText"></span>
-          <input id="dateInput" type="date" aria-label="Zgjidh datën" />
-        </label>
-        <button class="icon-btn" data-shift="1" aria-label="Dita tjetër">›</button>
-      </div>
-      <button id="todayBtn" class="link center hidden">Kthehu te sot</button>
-
-      <section class="card">
-        <h2>Porosia</h2>
-        <div id="orderForm"></div>
-      </section>
-
-      <section class="card">
-        <h2>Porositë e ditës <span id="ordersCount" class="badge">0</span></h2>
-        <div id="ordersList"></div>
-      </section>
-
-      <section class="card">
-        <h2>Teksti për restorantin</h2>
-        <pre id="restaurantText" class="output"></pre>
-        <div class="btn-row">
-          <button id="copyRestaurant" class="btn btn-primary">📋 Kopjo</button>
-          <a id="whatsappRestaurant" class="btn btn-whatsapp" target="_blank" rel="noopener">WhatsApp</a>
+      <!-- ----- DAY ----- -->
+      <main id="view-day" class="view">
+        <div class="datebar">
+          <button class="icon-btn" data-shift="-1" aria-label="Dita e kaluar">‹</button>
+          <label class="date-label">
+            <span id="dateRel" class="date-rel"></span>
+            <span id="dateText" class="date-text"></span>
+            <input id="dateInput" type="date" aria-label="Zgjidh datën" />
+          </label>
+          <button class="icon-btn" data-shift="1" aria-label="Dita tjetër">›</button>
         </div>
-      </section>
+        <button id="todayBtn" class="link center hidden">Kthehu te sot</button>
 
-      <section class="card">
-        <h2>Kush sa paguan</h2>
-        <div id="payments"></div>
-        <div class="btn-row">
-          <button id="copyPayments" class="btn">📋 Kopjo listën</button>
-        </div>
-      </section>
-    </main>
+        <section class="block">
+          <div class="block-head">
+            <h2 class="slab">Porosia</h2>
+            <span id="orderOwner" class="muted small"></span>
+          </div>
+          <div id="forWho"></div>
+          <div id="pilafBuilder"></div>
+        </section>
 
-    <!-- ----- HISTORY VIEW ----- -->
-    <main id="view-history" class="container hidden">
-      <section class="card">
-        <h2>Historiku</h2>
-        <p class="muted small">Kliko një ditë për të parë porositë, tekstin dhe pagesat.</p>
-        <div id="historyList"></div>
-      </section>
-    </main>
+        <section class="block menu-block">
+          <div class="menu-tools">
+            <input id="menuSearch" type="search" placeholder="Kërko në menu: biftek, supë, bowl…" aria-label="Kërko në menu" />
+            <div id="catChips" class="chips"></div>
+          </div>
+          <div id="menuList"></div>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2 class="slab">Porositë e ditës</h2>
+            <span id="ordersCount" class="count">0</span>
+          </div>
+          <div id="ordersList"></div>
+        </section>
+
+        <section class="block">
+          <h2 class="slab">Për restorantin</h2>
+          <pre id="restaurantText" class="ticket"></pre>
+          <div class="btn-row">
+            <button id="copyRestaurant" class="btn btn-ink">Kopjo tekstin</button>
+            <a id="whatsappRestaurant" class="btn btn-whatsapp" target="_blank" rel="noopener">Dërgo në WhatsApp</a>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2 class="slab">Kush sa paguan</h2>
+          <div id="payments"></div>
+          <div class="btn-row">
+            <button id="copyPayments" class="btn">Kopjo listën</button>
+          </div>
+        </section>
+
+        <div class="cart-space"></div>
+      </main>
+
+      <!-- ----- LEADERBOARD ----- -->
+      <main id="view-board" class="view hidden">
+        <section class="block board-head">
+          <h2 class="slab big-title">Mbreti i qebapave</h2>
+          <div class="seg" role="tablist">
+            <button type="button" class="seg-btn active" data-period="week">Java</button>
+            <button type="button" class="seg-btn" data-period="month">Muaji</button>
+          </div>
+          <div class="period">
+            <button class="icon-btn" data-poff="-1" aria-label="Më parë">‹</button>
+            <span id="periodText"></span>
+            <button class="icon-btn" data-poff="1" aria-label="Më pas">›</button>
+          </div>
+        </section>
+        <section class="block">
+          <div id="board"></div>
+        </section>
+      </main>
+
+      <!-- ----- HISTORY ----- -->
+      <main id="view-history" class="view hidden">
+        <section class="block">
+          <h2 class="slab">Historiku</h2>
+          <p class="muted small">Hap një ditë për të parë porositë, tekstin dhe pagesat.</p>
+          <div id="historyList"></div>
+        </section>
+      </main>
+
+      <!-- ----- ACCOUNT / ADMIN ----- -->
+      <main id="view-account" class="view hidden">
+        <section class="block">
+          <h2 class="slab">Llogaria</h2>
+          <p class="muted">Je futur si <b id="accName"></b>.</p>
+          <form id="pwForm" class="stack">
+            <label class="field">
+              <span>Fjalëkalimi i tanishëm</span>
+              <input id="pwOld" type="password" autocomplete="current-password" required />
+            </label>
+            <label class="field">
+              <span>Fjalëkalimi i ri</span>
+              <input id="pwNew" type="password" autocomplete="new-password" minlength="6" required />
+            </label>
+            <button class="btn btn-ink" type="submit">Ndrysho fjalëkalimin</button>
+          </form>
+          <button id="logoutBtn" class="btn btn-block logout">Dil nga llogaria</button>
+        </section>
+
+        <section id="adminBlock" class="block hidden">
+          <h2 class="slab">Përdoruesit</h2>
+          <p class="muted small">Si admin mund të ndryshosh porositë e të gjithëve, t’u vendosësh fjalëkalim të ri ose t’i bësh admin.</p>
+          <div id="usersList"></div>
+        </section>
+      </main>
+    </div>
+
+    <!-- sticky order bar -->
+    <div id="cartBar" class="cartbar hidden">
+      <div class="cart-info">
+        <span id="cartWho" class="cart-who"></span>
+        <span id="cartSummary" class="cart-summary"></span>
+      </div>
+      <b id="cartTotal" class="cart-total"></b>
+      <button id="saveBtn" class="btn btn-ink">Ruaj</button>
+    </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="status"></div>
 
   <script type="module" src="/app.js"></script>
 </body>

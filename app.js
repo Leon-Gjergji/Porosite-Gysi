@@ -1,6 +1,7 @@
 import {
   PILAF_SIZES,
-  SIMPLE_ITEMS,
+  MENU,
+  ITEMS,
   QEBAP_PRICE,
   MAX_QEBAP_ON_PILAF,
   MAX_QEBAP_ALONE,
@@ -10,13 +11,13 @@ import {
   describeOrder,
   buildRestaurantText,
   buildPaymentsText,
-  BOTTOM_ITEMS,
 } from './menu.js';
 
 // ============================================================
 // Helpers
 // ============================================================
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
 const storage = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -27,7 +28,9 @@ const storage = {
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const keyOf = (name) => name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('sq');
+// Same rule as the server: "Ardi" and " ardi " are the same person
+const keyOf = (name) => String(name).trim().replace(/\s+/g, ' ').toLocaleLowerCase('sq');
+const lek = (n) => `${Number(n)} L`;
 
 // Today's date in Albania, as YYYY-MM-DD
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Tirane' }).format(new Date());
@@ -41,9 +44,9 @@ function shiftDate(date, days) {
 const DAYS = ['E diel', 'E hënë', 'E martë', 'E mërkurë', 'E enjte', 'E premte', 'E shtunë'];
 const MONTHS = ['janar', 'shkurt', 'mars', 'prill', 'maj', 'qershor', 'korrik', 'gusht', 'shtator', 'tetor', 'nëntor', 'dhjetor'];
 
-function formatDate(date) {
+function formatDate(date, withYear = true) {
   const d = new Date(date + 'T12:00:00Z');
-  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${withYear ? ' ' + d.getUTCFullYear() : ''}`;
 }
 
 function relativeDay(date) {
@@ -61,7 +64,7 @@ function toast(msg, isError = false) {
   el.classList.toggle('error-toast', isError);
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 2200);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 2400);
 }
 
 async function copyText(text) {
@@ -78,35 +81,41 @@ async function copyText(text) {
     document.execCommand('copy');
     ta.remove();
   }
-  toast('U kopjua ✓');
+  toast('U kopjua');
 }
 
 // ============================================================
 // State
 // ============================================================
-const emptyDraft = () => {
-  const d = { pilafs: [], qebap: 0 };
-  for (const key of Object.keys(SIMPLE_ITEMS)) d[key] = 0;
-  return d;
-};
+const emptyDraft = () => ({ pilafs: [], qebap: 0, n: {} });
 
 const state = {
-  name: storage.get('porosite_emri') || '',
-  password: storage.get('porosite_fjalekalimi') || '',
+  token: storage.get('porosite_token') || '',
+  me: null, // { key, username, admin }
   date: today(),
   orders: [],
-  draftName: '',
+  forName: '', // whose order the form shows (always you, unless you are admin)
   draft: emptyDraft(),
   dirty: false, // true when the form has unsaved changes
   saving: false,
   confirmDelete: false,
   view: 'day',
+  search: '',
+  period: 'week',
+  poff: 0,
+  users: [],
+  authMode: 'login',
 };
+
+const isAdmin = () => !!state.me?.admin;
+const forKey = () => keyOf(state.forName || state.me?.username || '');
+const isMe = (key) => key === state.me?.key;
+const canEdit = (order) => isAdmin() || isMe(order.key);
 
 function draftToItems(d) {
   const items = d.pilafs.map((p) => ({ t: 'pilaf', size: p.size, q: p.q }));
   if (d.qebap > 0) items.push({ t: 'qebap', q: d.qebap });
-  for (const key of Object.keys(SIMPLE_ITEMS)) if (d[key] > 0) items.push({ t: key, n: d[key] });
+  for (const id of Object.keys(ITEMS)) if (id !== 'qebap' && d.n[id] > 0) items.push({ t: id, n: d.n[id] });
   return items;
 }
 
@@ -115,16 +124,16 @@ function itemsToDraft(items) {
   for (const it of items) {
     if (it.t === 'pilaf') d.pilafs.push({ size: it.size, q: it.q });
     else if (it.t === 'qebap') d.qebap += it.q;
-    else d[it.t] += it.n;
+    else if (ITEMS[it.t]) d.n[it.t] = (d.n[it.t] || 0) + it.n; // dishes removed from the menu are dropped
   }
   return d;
 }
 
-const findOrder = (name) => state.orders.find((o) => keyOf(o.name) === keyOf(name));
+const findOrder = (key) => state.orders.find((o) => o.key === key);
 
 function loadDraftFor(name) {
-  const existing = findOrder(name);
-  state.draftName = existing ? existing.name : name;
+  state.forName = name;
+  const existing = findOrder(keyOf(name));
   state.draft = existing ? itemsToDraft(existing.items) : emptyDraft();
   state.dirty = false;
   state.confirmDelete = false;
@@ -138,17 +147,17 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'x-group-password': state.password,
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
       ...(options.headers || {}),
     },
   });
   let data = {};
   try { data = await res.json(); } catch {}
-  if (res.status === 401) {
-    logout('Fjalëkalimi i gabuar ose u ndryshua.');
+  if (res.status === 401 && state.me) {
+    showLogin('Seanca mbaroi. Hyr përsëri.');
     throw new Error('401');
   }
-  if (!res.ok) throw new Error(data.error || 'Gabim në lidhje');
+  if (!res.ok) throw new Error(data.error || 'Nuk u lidh me serverin. Provo përsëri.');
   return data;
 }
 
@@ -157,12 +166,12 @@ async function loadDay({ resetDraft = false } = {}) {
   const data = await api(`/api/orders?date=${date}`);
   if (date !== state.date) return; // user already switched to another day
   state.orders = data.orders;
-  if (resetDraft) loadDraftFor(state.name);
+  if (resetDraft || !state.dirty) loadDraftFor(state.forName || state.me.username);
   renderDay();
 }
 
 // ============================================================
-// Render: order form
+// Render: order form (who, pilaf, menu, cart bar)
 // ============================================================
 function stepper(act, value, min, max, extra = '') {
   return `
@@ -173,20 +182,48 @@ function stepper(act, value, min, max, extra = '') {
     </div>`;
 }
 
-function renderForm() {
-  const d = state.draft;
-  const items = draftToItems(d);
-  const total = orderTotal(items);
-  const existing = state.draftName.trim() ? findOrder(state.draftName) : null;
-  const isOther = state.draftName.trim() && keyOf(state.draftName) !== keyOf(state.name);
+function renderForWho() {
+  const existing = findOrder(forKey());
+  const other = forKey() !== state.me.key;
 
-  const pilafRows = d.pilafs
+  let status;
+  if (existing && state.dirty) status = 'Ke ndryshime të paruajtura.';
+  else if (existing) status = `Ruajtur, ${lek(existing.total)}${existing.editedBy ? `. Ndryshuar nga ${esc(existing.editedBy)}` : ''}.`;
+  else status = other ? 'Ende pa porosi për këtë ditë.' : 'Ende s’ke porositur për këtë ditë.';
+
+  let html = '';
+  if (isAdmin()) {
+    const names = new Map();
+    state.users.forEach((u) => names.set(u.key, u.username));
+    state.orders.forEach((o) => names.set(o.key, o.name));
+    html += `
+      <label class="field for-field">
+        <span>Porosia për</span>
+        <input id="forName" list="forNames" maxlength="30" value="${esc(state.forName)}" autocomplete="off" />
+        <datalist id="forNames">${[...names.values()].map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
+      </label>`;
+    if (other) html += `<button type="button" class="link small" data-act="mine">Kthehu te porosia ime</button>`;
+  }
+  html += `
+    <div class="status-row">
+      <p class="status ${existing && !state.dirty ? 'ok' : ''}">${status}</p>
+      ${existing ? `<button type="button" class="btn btn-danger btn-sm ${state.confirmDelete ? 'confirm' : ''}" data-act="delete">${state.confirmDelete ? 'Po, fshije' : 'Fshi porosinë'}</button>` : ''}
+    </div>`;
+
+  // don't redraw while the admin types a name
+  if (document.activeElement?.id !== 'forName') $('#forWho').innerHTML = html;
+  $('#orderOwner').textContent = isAdmin() ? '' : `për ${state.me.username}`;
+}
+
+function renderPilaf() {
+  const d = state.draft;
+  const rows = d.pilafs
     .map((p, i) => {
       const sizes = Object.entries(PILAF_SIZES)
         .map(
           ([key, s]) => `
-          <button type="button" class="size-btn ${p.size === key ? 'active' : ''}" data-act="size" data-i="${i}" data-size="${key}">
-            ${esc(s.label)}<small>${s.price} lek</small>
+          <button type="button" class="size-btn ${p.size === key ? 'active' : ''}" data-act="size" data-i="${i}" data-size="${key}" aria-pressed="${p.size === key}">
+            <span>${esc(s.label)}</span><small>${lek(s.price)}</small>
           </button>`
         )
         .join('');
@@ -194,69 +231,127 @@ function renderForm() {
         <div class="pilaf-row">
           <div class="sizes">${sizes}</div>
           <div class="row-bottom">
-            <span class="label">Qebapa</span>
+            <span class="label">Qebapa sipër</span>
             ${stepper('pq', p.q, 0, MAX_QEBAP_ON_PILAF, `data-i="${i}"`)}
-            <span class="price">${itemPrice({ t: 'pilaf', ...p })} lek</span>
-            <button type="button" class="remove-btn" data-act="remove-pilaf" data-i="${i}" aria-label="Hiq">✕</button>
+            <span class="price">${lek(itemPrice({ t: 'pilaf', ...p }))}</span>
+            <button type="button" class="remove-btn" data-act="remove-pilaf" data-i="${i}" aria-label="Hiq këtë pilaf">✕</button>
           </div>
         </div>`;
     })
     .join('');
 
-  const simpleRow = (key, label, priceText, value, max) => `
-    <div class="item-row">
-      <div class="item-name">${esc(label)}<small>${priceText}</small></div>
-      ${stepper('simple', value, 0, max, `data-key="${key}"`)}
-    </div>`;
-  const simple = (key) => simpleRow(key, SIMPLE_ITEMS[key].label, `${SIMPLE_ITEMS[key].price} lek`, d[key], MAX_QTY);
+  $('#pilafBuilder').innerHTML = `
+    <div class="pilaf-head">
+      <h3>Pilaf me qebapa</h3>
+      <small>${lek(QEBAP_PRICE)} qebapi</small>
+    </div>
+    ${rows}
+    <button type="button" class="btn-dashed" data-act="add-pilaf">+ Shto pilaf</button>`;
+}
 
-  const keys = Object.keys(SIMPLE_ITEMS);
-  const others = [
-    ...keys.filter((k) => !BOTTOM_ITEMS.includes(k)).map(simple),
-    simpleRow('qebap', 'Vetëm qebapa (pa pilaf)', `${QEBAP_PRICE} lek copa`, d.qebap, MAX_QEBAP_ALONE),
-    ...keys.filter((k) => BOTTOM_ITEMS.includes(k)).map(simple),
-  ].join('');
+const fold = (s) => s.toLocaleLowerCase('sq').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-  let hint = '';
-  if (isOther && existing) hint = `Po ndryshon porosinë e ${esc(existing.name)}.`;
-  else if (isOther) hint = `Po shton porosi për ${esc(state.draftName.trim())}.`;
-
-  $('#orderForm').innerHTML = `
-    <label class="field">
-      <span>Porosia për</span>
-      <input id="draftName" maxlength="30" value="${esc(state.draftName)}" placeholder="Emri" />
-    </label>
-    ${hint ? `<p class="hint">${hint}</p>` : ''}
-
-    <div class="section-title">Pilaf</div>
-    ${pilafRows}
-    <button type="button" class="btn-ghost" data-act="add-pilaf">+ Shto pilaf</button>
-
-    <div class="section-title">Të tjera</div>
-    ${others}
-
-    <div class="form-footer">
-      <div class="form-total"><span>Totali</span><b>${total} lek</b></div>
-      <div class="btn-row">
-        <button type="button" class="btn btn-primary" data-act="save" ${!items.length || state.saving ? 'disabled' : ''}>
-          ${state.saving ? 'Duke ruajtur…' : existing ? (state.dirty ? 'Ruaj ndryshimet' : 'E ruajtur ✓') : 'Ruaj porosinë'}
-        </button>
-        ${existing ? `<button type="button" class="btn btn-danger ${state.confirmDelete ? 'confirm' : ''}" data-act="delete">${state.confirmDelete ? 'Konfirmo fshirjen' : 'Fshi'}</button>` : ''}
+function dishRow(it) {
+  const isQebap = it.id === 'qebap';
+  const n = isQebap ? state.draft.qebap : state.draft.n[it.id] || 0;
+  const max = isQebap ? MAX_QEBAP_ALONE : MAX_QTY;
+  const sub = [it.en, it.note].filter(Boolean).join(', ');
+  const control =
+    n > 0
+      ? stepper('dish', n, 0, max, `data-id="${it.id}"`)
+      : `<button type="button" class="add-btn" data-act="dish" data-d="1" data-id="${it.id}" aria-label="Shto ${esc(it.label)}">+</button>`;
+  return `
+    <div class="dish ${n > 0 ? 'picked' : ''}" id="dish-${it.id}">
+      <div class="dish-text">
+        <div class="dish-line">
+          <span class="dish-name">${esc(it.label)}</span>
+          <span class="leader" aria-hidden="true"></span>
+          <span class="dish-price">${lek(it.price)}</span>
+        </div>
+        ${sub ? `<div class="dish-sub">${esc(sub)}</div>` : ''}
       </div>
+      ${control}
     </div>`;
 }
 
+function renderMenu() {
+  const q = fold(state.search.trim());
+  const match = (it) => !q || fold(`${it.label} ${it.en} ${it.note || ''}`).includes(q);
+  const cats = MENU.map((c) => ({ ...c, shown: c.items.filter(match) })).filter((c) => c.shown.length);
+
+  renderMenuChipsOnly();
+
+  $('#menuList').innerHTML = cats.length
+    ? cats
+        .map(
+          (c) => `
+        <section class="cat" id="cat-${c.id}">
+          <h3 class="cat-title slab">${esc(c.title)}</h3>
+          ${c.shown.map(dishRow).join('')}
+        </section>`
+        )
+        .join('')
+    : `<p class="empty">Asgjë me “${esc(state.search)}”. Provo një fjalë tjetër.</p>`;
+}
+
+function renderCart() {
+  const items = draftToItems(state.draft);
+  const total = orderTotal(items);
+  const existing = findOrder(forKey());
+  const show = state.view === 'day' && (items.length > 0 || !!existing);
+  $('#cartBar').classList.toggle('hidden', !show);
+  if (!show) return;
+
+  const other = forKey() !== state.me.key;
+  $('#cartWho').textContent = other ? `Për ${state.forName.trim()}` : 'Porosia jote';
+  $('#cartSummary').textContent = items.length ? describeOrder(items) : 'Bosh';
+  $('#cartTotal').textContent = lek(total);
+  const btn = $('#saveBtn');
+  btn.disabled = !items.length || state.saving || (existing && !state.dirty);
+  btn.textContent = state.saving ? 'Duke ruajtur…' : existing ? (state.dirty ? 'Ruaj ndryshimet' : 'E ruajtur') : 'Ruaj porosinë';
+}
+
+function renderForm() {
+  renderForWho();
+  renderPilaf();
+  renderMenu();
+  renderCart();
+}
+
+// after a +/- on one dish: only redraw that row, the chips and the bar
+function refreshDish(id) {
+  const row = document.getElementById(`dish-${id}`);
+  if (row) row.outerHTML = dishRow(ITEMS[id]);
+  const chipsScroll = $('#catChips').scrollLeft;
+  renderMenuChipsOnly();
+  $('#catChips').scrollLeft = chipsScroll;
+  renderForWho();
+  renderCart();
+}
+
+function renderMenuChipsOnly() {
+  const q = fold(state.search.trim());
+  const match = (it) => !q || fold(`${it.label} ${it.en} ${it.note || ''}`).includes(q);
+  $('#catChips').innerHTML = MENU.filter((c) => c.items.some(match))
+    .map((c) => {
+      const picked = c.items.filter((it) => (it.id === 'qebap' ? state.draft.qebap : state.draft.n[it.id])).length;
+      return `<button type="button" class="chip" data-cat="${c.id}">${esc(c.title)}${picked ? `<b>${picked}</b>` : ''}</button>`;
+    })
+    .join('');
+}
+
 // ============================================================
-// Render: orders, restaurant text, payments
+// Render: day (orders, restaurant text, payments)
 // ============================================================
 function renderDay() {
   const rel = relativeDay(state.date);
-  $('#dateText').textContent = (rel ? rel + ' · ' : '') + formatDate(state.date);
+  $('#dateRel').textContent = rel;
+  $('#dateRel').classList.toggle('hidden', !rel);
+  $('#dateText').textContent = formatDate(state.date);
   $('#dateInput').value = state.date;
   $('#todayBtn').classList.toggle('hidden', state.date === today());
 
-  // Don't re-draw the form while someone is typing a name in it
-  if (document.activeElement?.id !== 'draftName') renderForm();
+  renderForm();
 
   const orders = state.orders;
   $('#ordersCount').textContent = orders.length;
@@ -264,22 +359,23 @@ function renderDay() {
     ? orders
         .map(
           (o) => `
-        <div class="order">
+        <div class="order ${forKey() === o.key ? 'current' : ''}">
           <div class="order-main">
-            <div class="order-name">${esc(o.name)}${keyOf(o.name) === keyOf(state.name) ? '<span class="you">(ti)</span>' : ''}</div>
+            <div class="order-name">${esc(o.name)}${isMe(o.key) ? '<span class="you">ti</span>' : ''}</div>
             <div class="order-items">${esc(describeOrder(o.items))}</div>
           </div>
           <div class="order-side">
-            <span class="price">${o.total} lek</span>
-            <button class="link small" data-edit="${esc(o.name)}">Ndrysho</button>
+            <span class="price">${lek(o.total)}</span>
+            ${canEdit(o) ? `<button class="link small" data-edit="${esc(o.name)}">Ndrysho</button>` : ''}
           </div>
         </div>`
         )
         .join('')
-    : '<p class="empty">Ende s’ka porosi për këtë ditë.</p>';
+    : '<p class="empty">Ende s’ka porosi për këtë ditë. Bëhu i pari.</p>';
 
   const text = buildRestaurantText(orders);
-  $('#restaurantText').textContent = text || '—';
+  $('#restaurantText').textContent = text || 'Teksti del këtu kur dikush porosit.';
+  $('#restaurantText').classList.toggle('is-empty', !text);
   $('#copyRestaurant').disabled = !text;
   const wa = $('#whatsappRestaurant');
   wa.href = text ? `https://wa.me/?text=${encodeURIComponent(text)}` : '#';
@@ -287,10 +383,70 @@ function renderDay() {
 
   const total = orders.reduce((s, o) => s + o.total, 0);
   $('#payments').innerHTML = orders.length
-    ? orders.map((o) => `<div class="pay-row"><span>${esc(o.name)}</span><b>${o.total} lek</b></div>`).join('') +
-      `<div class="pay-total"><span>Totali (${orders.length} veta)</span><span>${total} lek</span></div>`
-    : '<p class="empty">—</p>';
+    ? orders.map((o) => `<div class="pay-row"><span>${esc(o.name)}</span><span class="leader"></span><b>${lek(o.total)}</b></div>`).join('') +
+      `<div class="pay-total"><span>Totali, ${orders.length} veta</span><span>${lek(total)}</span></div>`
+    : '<p class="empty">Asnjë pagesë ende.</p>';
   $('#copyPayments').disabled = !orders.length;
+}
+
+// ============================================================
+// Render: leaderboard
+// ============================================================
+function periodTitle(d) {
+  if (d.period === 'month') {
+    const m = new Date(d.from + 'T12:00:00Z');
+    const name = MONTHS[m.getUTCMonth()];
+    return `${name[0].toUpperCase()}${name.slice(1)} ${m.getUTCFullYear()}`;
+  }
+  const a = new Date(d.from + 'T12:00:00Z');
+  const b = new Date(d.to + 'T12:00:00Z');
+  const sameMonth = a.getUTCMonth() === b.getUTCMonth();
+  return `${a.getUTCDate()}${sameMonth ? '' : ' ' + MONTHS[a.getUTCMonth()]} – ${b.getUTCDate()} ${MONTHS[b.getUTCMonth()]}`;
+}
+
+async function renderBoard() {
+  $$('[data-period]').forEach((b) => b.classList.toggle('active', b.dataset.period === state.period));
+  $('[data-poff="1"]').disabled = state.poff >= 0;
+  const box = $('#board');
+  box.innerHTML = '<p class="empty">Duke numëruar qebapat…</p>';
+  try {
+    const d = await api(`/api/leaderboard?period=${state.period}&offset=${state.poff}`);
+    if (d.period !== state.period || d.offset !== state.poff) return;
+    $('#periodText').textContent = periodTitle(d);
+    if (!d.rows.length) {
+      box.innerHTML = `<p class="empty">Askush s’ka porositur ${state.period === 'week' ? 'këtë javë' : 'këtë muaj'}. Fronti është bosh.</p>`;
+      return;
+    }
+    const max = Math.max(1, ...d.rows.map((r) => r.qebapa));
+    const per = max <= 16 ? 1 : Math.ceil(max / 16); // one drawn piece = "per" qebapa (max 16 pieces fit on a phone)
+    let place = 0;
+    let prev = null;
+    box.innerHTML =
+      `<p class="board-sum">${d.totalQebapa} qebapa në ${d.days} ditë${per > 1 ? `. Një copë në hell = ${per} qebapa.` : '.'}</p>` +
+      d.rows
+        .map((r, i) => {
+          if (r.qebapa !== prev) place = i + 1;
+          prev = r.qebapa;
+          const pieces = Math.ceil(r.qebapa / per);
+          const king = place === 1 && r.qebapa > 0;
+          return `
+          <div class="rank-row ${king ? 'king' : ''} ${isMe(r.key) ? 'me-row' : ''}">
+            <div class="rank-place">${king ? '<svg class="crown" aria-label="I pari"><use href="#crown"/></svg>' : place}</div>
+            <div class="rank-body">
+              <div class="rank-name">${esc(r.name)}${isMe(r.key) ? '<span class="you">ti</span>' : ''}</div>
+              <div class="skewer" aria-hidden="true">
+                <span class="stick"></span>
+                ${Array.from({ length: pieces }, () => '<span class="piece"></span>').join('')}
+              </div>
+              <div class="rank-meta">${r.orders} porosi, ${lek(r.spent)}${r.favorite ? `, më shpesh ${esc(r.favorite)}` : ''}</div>
+            </div>
+            <div class="rank-score"><b>${r.qebapa}</b><small>qebapa</small></div>
+          </div>`;
+        })
+        .join('');
+  } catch (e) {
+    if (e.message !== '401') box.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
 }
 
 // ============================================================
@@ -302,7 +458,7 @@ async function renderHistory() {
   try {
     const { days } = await api('/api/history');
     if (!days.length) {
-      list.innerHTML = '<p class="empty">Ende s’ka histori.</p>';
+      list.innerHTML = '<p class="empty">Ende s’ka histori. Ditët shfaqen këtu pasi të porositni.</p>';
       return;
     }
     const grand = days.reduce((s, d) => s + d.total, 0);
@@ -313,107 +469,200 @@ async function renderHistory() {
           return `
           <button class="history-row" data-date="${d.date}">
             <div>
-              <div class="history-date">${rel ? rel + ' · ' : ''}${formatDate(d.date)}</div>
-              <div class="history-names">${d.people} veta · ${esc(d.names.join(', '))}</div>
+              <div class="history-date">${rel ? `<b>${rel}</b>, ` : ''}${formatDate(d.date)}</div>
+              <div class="history-names">${d.people} veta: ${esc(d.names.join(', '))}</div>
             </div>
-            <span class="history-total">${d.total} lek ›</span>
+            <span class="history-total">${lek(d.total)}</span>
           </button>`;
         })
-        .join('') + `<div class="history-sum"><span>Gjithsej (${days.length} ditë)</span><span>${grand} lek</span></div>`;
+        .join('') + `<div class="pay-total"><span>Gjithsej, ${days.length} ditë</span><span>${lek(grand)}</span></div>`;
   } catch (e) {
     if (e.message !== '401') list.innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
 
 // ============================================================
-// Views + login
+// Render: account + admin users
+// ============================================================
+async function loadUsers() {
+  if (!isAdmin()) return;
+  try {
+    state.users = (await api('/api/users')).users;
+  } catch {}
+}
+
+function renderUsers() {
+  $('#usersList').innerHTML = state.users
+    .map(
+      (u) => `
+      <div class="user-row" data-user="${esc(u.username)}">
+        <div class="user-main">
+          <div class="order-name">${esc(u.username)}${u.admin ? '<span class="pill">admin</span>' : ''}${isMe(u.key) ? '<span class="you">ti</span>' : ''}</div>
+          <div class="user-actions">
+            ${
+              isMe(u.key) || u.fixedAdmin
+                ? ''
+                : `<button class="link small" data-uact="admin">${u.admin ? 'Hiq admin' : 'Bëje admin'}</button>`
+            }
+            <button class="link small" data-uact="pw">Fjalëkalim i ri</button>
+            ${isMe(u.key) || u.fixedAdmin ? '' : `<button class="link small danger" data-uact="del">Fshi</button>`}
+          </div>
+          <form class="pw-inline hidden">
+            <input type="text" minlength="6" placeholder="Fjalëkalimi i ri" autocomplete="off" aria-label="Fjalëkalimi i ri për ${esc(u.username)}" />
+            <button class="btn btn-ink btn-sm" type="submit">Vendos</button>
+          </form>
+        </div>
+      </div>`
+    )
+    .join('');
+}
+
+async function renderAccount() {
+  $('#accName').textContent = state.me.username;
+  $('#adminBlock').classList.toggle('hidden', !isAdmin());
+  if (isAdmin()) {
+    $('#usersList').innerHTML = '<p class="empty">Duke ngarkuar…</p>';
+    await loadUsers();
+    renderUsers();
+  }
+}
+
+// ============================================================
+// Views, login, logout
 // ============================================================
 function setView(view) {
   state.view = view;
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
-  $('#view-day').classList.toggle('hidden', view !== 'day');
-  $('#view-history').classList.toggle('hidden', view !== 'history');
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
+  for (const v of ['day', 'board', 'history', 'account']) $(`#view-${v}`).classList.toggle('hidden', v !== view);
+  if (view === 'board') renderBoard();
   if (view === 'history') renderHistory();
+  if (view === 'account') renderAccount();
+  renderCart();
   window.scrollTo(0, 0);
 }
 
 async function goToDate(date) {
   state.date = date;
   state.orders = [];
-  loadDraftFor(state.name);
+  loadDraftFor(state.forName || state.me.username);
   renderDay();
   try { await loadDay({ resetDraft: true }); } catch (e) { if (e.message !== '401') toast(e.message, true); }
 }
 
-function showApp() {
+async function enterApp(user) {
+  state.me = user;
+  state.forName = user.username;
+  $('#meName').textContent = user.username;
+  $('#meBadge').classList.toggle('hidden', !user.admin);
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  $('#userName').textContent = state.name;
+  setView('day');
+  await Promise.all([loadDay({ resetDraft: true }), loadUsers()]);
+  renderForWho();
 }
 
-function logout(message = '') {
-  storage.del('porosite_fjalekalimi');
-  state.password = '';
+function showLogin(message = '') {
+  state.token = '';
+  state.me = null;
+  storage.del('porosite_token');
   $('#app').classList.add('hidden');
   $('#login').classList.remove('hidden');
-  $('#loginName').value = state.name;
-  $('#loginError').textContent = message;
-  $('#loginError').classList.toggle('hidden', !message);
+  setAuthMode(state.authMode);
+  $('#authError').textContent = message;
+  $('#authError').classList.toggle('hidden', !message);
 }
 
-$('#loginForm').addEventListener('submit', async (e) => {
+function setAuthMode(mode) {
+  state.authMode = mode;
+  $$('[data-auth]').forEach((b) => b.classList.toggle('active', b.dataset.auth === mode));
+  $$('.register-only').forEach((el) => el.classList.toggle('hidden', mode !== 'register'));
+  $('#authPass').autocomplete = mode === 'register' ? 'new-password' : 'current-password';
+  $('#authSubmit').textContent = mode === 'register' ? 'Krijo llogarinë' : 'Hyr';
+  $('#authError').classList.add('hidden');
+}
+
+$$('[data-auth]').forEach((b) => b.addEventListener('click', () => setAuthMode(b.dataset.auth)));
+
+$('#authForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = $('#loginName').value.trim().replace(/\s+/g, ' ');
-  const password = $('#loginPassword').value;
-  if (!name || !password) return;
-  state.name = name;
-  state.password = password;
+  const username = $('#authUser').value.trim().replace(/\s+/g, ' ');
+  const password = $('#authPass').value;
+  const register = state.authMode === 'register';
+  const err = (m) => { $('#authError').textContent = m; $('#authError').classList.remove('hidden'); };
+  if (!username || !password) return err('Shkruaj emrin dhe fjalëkalimin.');
+  if (register && password.length < 6) return err('Fjalëkalimi duhet të ketë të paktën 6 shenja.');
+  if (register && !$('#authCode').value) return err('Shkruaj kodin e grupit.');
+
+  const btn = $('#authSubmit');
+  btn.disabled = true;
   try {
-    await loadDay({ resetDraft: true });
-    storage.set('porosite_emri', name);
-    storage.set('porosite_fjalekalimi', password);
-    $('#loginPassword').value = '';
-    showApp();
-  } catch (err) {
-    if (err.message !== '401') {
-      $('#loginError').textContent = err.message;
-      $('#loginError').classList.remove('hidden');
-    }
+    const body = register
+      ? { action: 'register', username, password, groupCode: $('#authCode').value }
+      : { action: 'login', username, password };
+    const data = await api('/api/auth', { method: 'POST', body: JSON.stringify(body) });
+    state.token = data.token;
+    storage.set('porosite_token', data.token);
+    $('#authPass').value = '';
+    $('#authCode').value = '';
+    await enterApp(data.user);
+    if (register) toast(`Mirë se erdhe, ${data.user.username}`);
+  } catch (ex) {
+    err(ex.message);
+  } finally {
+    btn.disabled = false;
   }
 });
 
-$('#logoutBtn').addEventListener('click', () => {
-  storage.del('porosite_emri');
-  state.name = '';
-  logout();
+$('#logoutBtn').addEventListener('click', async () => {
+  try { await api('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'logout' }) }); } catch {}
+  showLogin();
+});
+
+$('#pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const data = await api('/api/auth', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'password', oldPassword: $('#pwOld').value, newPassword: $('#pwNew').value }),
+    });
+    state.token = data.token;
+    storage.set('porosite_token', data.token);
+    $('#pwOld').value = '';
+    $('#pwNew').value = '';
+    toast('Fjalëkalimi u ndryshua. Telefonat e tjerë u nxorën nga llogaria.');
+  } catch (ex) {
+    if (ex.message !== '401') toast(ex.message, true);
+  }
 });
 
 // ============================================================
 // Events
 // ============================================================
-document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setView(t.dataset.view)));
-
-document.querySelectorAll('[data-shift]').forEach((b) =>
-  b.addEventListener('click', () => goToDate(shiftDate(state.date, Number(b.dataset.shift))))
+$$('[data-view]').forEach((t) =>
+  t.addEventListener('click', (e) => {
+    e.preventDefault();
+    setView(t.dataset.view);
+  })
 );
+
+$$('[data-shift]').forEach((b) => b.addEventListener('click', () => goToDate(shiftDate(state.date, Number(b.dataset.shift)))));
 $('#dateInput').addEventListener('change', (e) => e.target.value && goToDate(e.target.value));
 $('#todayBtn').addEventListener('click', () => goToDate(today()));
 
-// Name field in the form
-$('#orderForm').addEventListener('input', (e) => {
-  if (e.target.id !== 'draftName') return;
-  state.draftName = e.target.value;
-});
-$('#orderForm').addEventListener('change', (e) => {
-  if (e.target.id !== 'draftName') return;
-  // Nothing changed yet -> show this person's saved order, or an empty form.
-  // If items were already picked, keep them (you picked the food first, then typed the name).
-  if (!state.dirty) loadDraftFor(state.draftName);
+// Admin: "Porosia për" field
+$('#forWho').addEventListener('change', (e) => {
+  if (e.target.id !== 'forName') return;
+  const name = e.target.value.trim().replace(/\s+/g, ' ');
+  e.target.blur();
+  if (!name) { loadDraftFor(state.me.username); renderForm(); return; }
+  // Nothing picked yet -> show this person's saved order. If dishes were already picked, keep them.
+  if (!state.dirty) loadDraftFor(name);
+  else state.forName = name;
   renderForm();
+  renderDay();
 });
 
-// All buttons in the form
-$('#orderForm').addEventListener('click', async (e) => {
+async function onFormClick(e) {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
   const d = state.draft;
@@ -421,28 +670,54 @@ $('#orderForm').addEventListener('click', async (e) => {
   const delta = Number(btn.dataset.d);
   const act = btn.dataset.act;
 
-  if (act === 'save') return saveOrder();
   if (act === 'delete') return deleteOrder();
+  if (act === 'mine') { loadDraftFor(state.me.username); renderDay(); return; }
 
-  if (act === 'add-pilaf') d.pilafs.push({ size: 'teke', q: 0 });
+  if (act === 'dish') {
+    const id = btn.dataset.id;
+    if (id === 'qebap') d.qebap = Math.min(MAX_QEBAP_ALONE, Math.max(0, d.qebap + delta));
+    else d.n[id] = Math.min(MAX_QTY, Math.max(0, (d.n[id] || 0) + delta));
+    state.dirty = true;
+    state.confirmDelete = false;
+    refreshDish(id);
+    document.querySelector(`#dish-${id} [data-act="dish"][data-d="${delta}"]`)?.focus({ preventScroll: true });
+    return;
+  }
+
+  if (act === 'add-pilaf') d.pilafs.push({ size: 'dopjo', q: 0 });
   else if (act === 'remove-pilaf') d.pilafs.splice(i, 1);
   else if (act === 'size') d.pilafs[i].size = btn.dataset.size;
   else if (act === 'pq') d.pilafs[i].q = Math.min(MAX_QEBAP_ON_PILAF, Math.max(0, d.pilafs[i].q + delta));
-  else if (act === 'simple') {
-    const key = btn.dataset.key;
-    const max = key === 'qebap' ? MAX_QEBAP_ALONE : MAX_QTY;
-    d[key] = Math.min(max, Math.max(0, d[key] + delta));
-  }
+  else return;
   state.dirty = true;
   state.confirmDelete = false;
-  renderForm();
+  renderForWho();
+  renderPilaf();
+  renderCart();
+}
+$('#forWho').addEventListener('click', onFormClick);
+$('#pilafBuilder').addEventListener('click', onFormClick);
+$('#menuList').addEventListener('click', onFormClick);
+
+$('#menuSearch').addEventListener('input', (e) => {
+  state.search = e.target.value;
+  renderMenu();
 });
 
+$('#catChips').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-cat]');
+  if (!chip) return;
+  const target = document.getElementById(`cat-${chip.dataset.cat}`);
+  const offset = $('.menu-tools').offsetHeight + 8;
+  if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - offset, behavior: 'smooth' });
+});
+
+$('#saveBtn').addEventListener('click', saveOrder);
+
 async function saveOrder() {
-  const name = state.draftName.trim();
-  if (!name) return toast('Shkruaj emrin', true);
+  const name = (state.forName || state.me.username).trim();
   state.saving = true;
-  renderForm();
+  renderCart();
   try {
     await api('/api/orders', {
       method: 'POST',
@@ -450,12 +725,12 @@ async function saveOrder() {
     });
     state.dirty = false;
     await loadDay();
-    toast('Porosia u ruajt ✓');
+    toast(forKey() === state.me.key ? 'Porosia u ruajt' : `Porosia e ${name} u ruajt`);
   } catch (e) {
     if (e.message !== '401') toast(e.message, true);
   } finally {
     state.saving = false;
-    renderForm();
+    renderCart();
   }
 }
 
@@ -463,18 +738,17 @@ let confirmTimer;
 async function deleteOrder() {
   if (!state.confirmDelete) {
     state.confirmDelete = true;
-    renderForm();
+    renderForWho();
     clearTimeout(confirmTimer);
-    confirmTimer = setTimeout(() => { state.confirmDelete = false; renderForm(); }, 3000);
+    confirmTimer = setTimeout(() => { state.confirmDelete = false; renderForWho(); }, 3500);
     return;
   }
   clearTimeout(confirmTimer);
-  const name = state.draftName.trim();
+  const name = (state.forName || state.me.username).trim();
   try {
     await api(`/api/orders?date=${state.date}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-    await loadDay();
-    loadDraftFor(state.name);
-    renderForm();
+    state.dirty = false;
+    await loadDay({ resetDraft: true });
     toast('Porosia u fshi');
   } catch (e) {
     if (e.message !== '401') toast(e.message, true);
@@ -486,13 +760,28 @@ $('#ordersList').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-edit]');
   if (!btn) return;
   loadDraftFor(btn.dataset.edit);
-  renderForm();
-  $('#orderForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  renderDay();
+  $('#view-day .block').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 $('#copyRestaurant').addEventListener('click', () => copyText(buildRestaurantText(state.orders)));
 $('#copyPayments').addEventListener('click', () =>
-  copyText(`Pagesat · ${formatDate(state.date)}\n\n${buildPaymentsText(state.orders)}`)
+  copyText(`Pagesat, ${formatDate(state.date)}\n\n${buildPaymentsText(state.orders)}`)
+);
+
+// Leaderboard controls
+$$('[data-period]').forEach((b) =>
+  b.addEventListener('click', () => {
+    state.period = b.dataset.period;
+    state.poff = 0;
+    renderBoard();
+  })
+);
+$$('[data-poff]').forEach((b) =>
+  b.addEventListener('click', () => {
+    state.poff = Math.min(0, state.poff + Number(b.dataset.poff));
+    renderBoard();
+  })
 );
 
 // Click a day in history -> open it
@@ -503,31 +792,80 @@ $('#historyList').addEventListener('click', (e) => {
   goToDate(row.dataset.date);
 });
 
-// Refresh orders every 15s so you see your friends' orders live
-setInterval(() => {
-  if (state.password && state.view === 'day' && document.visibilityState === 'visible') {
-    loadDay().catch(() => {});
+// Admin: user actions
+const confirmDel = new Set();
+$('#usersList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-uact]');
+  if (!btn) return;
+  const row = btn.closest('[data-user]');
+  const user = row.dataset.user;
+  const u = state.users.find((x) => x.username === user);
+  try {
+    if (btn.dataset.uact === 'pw') {
+      row.querySelector('.pw-inline').classList.toggle('hidden');
+      row.querySelector('.pw-inline input').focus();
+      return;
+    }
+    if (btn.dataset.uact === 'admin') {
+      await api('/api/users', { method: 'POST', body: JSON.stringify({ action: 'admin', user, value: !u.admin }) });
+      toast(u.admin ? `${user} nuk është më admin` : `${user} tani është admin`);
+    }
+    if (btn.dataset.uact === 'del') {
+      if (!confirmDel.has(user)) {
+        confirmDel.add(user);
+        btn.textContent = 'Po, fshije llogarinë';
+        setTimeout(() => { confirmDel.delete(user); if (btn.isConnected) btn.textContent = 'Fshi'; }, 3500);
+        return;
+      }
+      confirmDel.delete(user);
+      await api(`/api/users?user=${encodeURIComponent(user)}`, { method: 'DELETE' });
+      toast(`Llogaria e ${user} u fshi. Porositë e vjetra mbeten.`);
+    }
+    await loadUsers();
+    renderUsers();
+  } catch (ex) {
+    if (ex.message !== '401') toast(ex.message, true);
   }
-}, 15000);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.password && state.view === 'day') loadDay().catch(() => {});
 });
+
+$('#usersList').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target.closest('.pw-inline');
+  const user = form.closest('[data-user]').dataset.user;
+  const password = form.querySelector('input').value;
+  try {
+    await api('/api/users', { method: 'POST', body: JSON.stringify({ action: 'password', user, password }) });
+    form.reset();
+    form.classList.add('hidden');
+    toast(`Fjalëkalimi i ${user} u ndryshua. Jepja atij.`);
+  } catch (ex) {
+    if (ex.message !== '401') toast(ex.message, true);
+  }
+});
+
+// Refresh orders every 15s so you see your friends' orders live
+const refresh = () => {
+  if (state.me && state.view === 'day' && document.visibilityState === 'visible' && !state.saving) loadDay().catch(() => {});
+};
+setInterval(refresh, 15000);
+document.addEventListener('visibilitychange', refresh);
 
 // ============================================================
 // Start
 // ============================================================
 (async function start() {
-  if (state.name && state.password) {
-    try {
-      await loadDay({ resetDraft: true });
-      showApp();
-      return;
-    } catch (e) {
-      if (e.message === '401') return;
-      showApp();
-      toast(e.message, true);
-      return;
-    }
+  // the old app saved the group password on the phone; it's not needed anymore
+  storage.del('porosite_fjalekalimi');
+  if (!state.token) {
+    const old = storage.get('porosite_emri');
+    if (old) $('#authUser').value = old;
+    return showLogin();
   }
-  logout();
+  try {
+    const { user } = await api('/api/auth');
+    await enterApp(user);
+  } catch (e) {
+    if (e.message !== '401') showLogin(e.message);
+    else showLogin('Hyr përsëri në llogari.');
+  }
 })();
